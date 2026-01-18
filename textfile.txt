@@ -1,0 +1,444 @@
+// === PASTE THIS ENTIRE CODE INTO BROWSER CONSOLE ===
+(function() {
+  // Your Firebase Database URL
+  const DATABASE_URL = "https://online-chat-mmc-default-rtdb.firebaseio.com";
+  
+  // Create chat frame
+  const frame = document.createElement('div');
+  frame.id = 'chatFrame';
+  frame.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 450px;
+    height: 600px;
+    background: #1a1a2e;
+    border: 3px solid #4cc9f0;
+    border-radius: 10px;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+    z-index: 999999;
+    display: flex;
+    flex-direction: column;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+    resize: both;
+  `;
+  
+  // Header
+  const header = document.createElement('div');
+  header.innerHTML = '<b>🔥 Live Chat</b> <span id="minBtn" style="float:right;cursor:pointer;margin-left:10px;">🗕</span>';
+  header.style.cssText = `
+    background: linear-gradient(90deg, #4cc9f0 0%, #4361ee 100%);
+    color: white;
+    padding: 10px;
+    cursor: move;
+    user-select: none;
+  `;
+  
+  // Content area
+  const content = document.createElement('div');
+  content.id = 'chatContent';
+  content.style.cssText = 'flex:1;overflow-y:auto;background:#0d1b2a;padding:10px;';
+  
+  frame.appendChild(header);
+  frame.appendChild(content);
+  document.body.appendChild(frame);
+  
+  // Make draggable
+  let isDragging = false;
+  let dragOffset = {x: 0, y: 0};
+  
+  header.onmousedown = function(e) {
+    if (e.target.id === 'minBtn') return;
+    isDragging = true;
+    dragOffset.x = e.clientX - frame.offsetLeft;
+    dragOffset.y = e.clientY - frame.offsetTop;
+    
+    document.onmousemove = function(e) {
+      if (!isDragging) return;
+      frame.style.left = (e.clientX - dragOffset.x) + 'px';
+      frame.style.top = (e.clientY - dragOffset.y) + 'px';
+      frame.style.right = 'auto';
+    };
+    
+    document.onmouseup = function() {
+      isDragging = false;
+      document.onmousemove = null;
+      document.onmouseup = null;
+    };
+  };
+  
+  // Minimize button
+  document.getElementById('minBtn').onclick = function() {
+    if (content.style.display === 'none') {
+      content.style.display = 'block';
+      frame.style.height = '600px';
+    } else {
+      content.style.display = 'none';
+      frame.style.height = 'auto';
+    }
+  };
+  
+  // Message rate tracker
+  const messageTracker = {};
+  
+  // Show login screen
+  function showLogin() {
+    content.innerHTML = `
+      <div style="color:white;text-align:center;padding:20px;">
+        <h3 style="margin-top:0;">💬 Live Chat Login</h3>
+        <div style="background:rgba(255,255,255,0.1);padding:20px;border-radius:8px;">
+          <input type="text" id="usernameInput" placeholder="Enter username (no Ⓜ️)" 
+                 style="width:100%;padding:10px;margin-bottom:10px;background:#333;color:white;border:1px solid #4cc9f0;border-radius:5px;">
+          
+          <div id="passwordSection" style="display:none;">
+            <input type="password" id="passwordInput" placeholder="Jackson's password" 
+                   style="width:100%;padding:10px;margin-bottom:10px;background:#333;color:white;border:1px solid #ffd166;border-radius:5px;">
+          </div>
+          
+          <div id="loginError" style="color:#ff6b6b;min-height:20px;margin-bottom:10px;"></div>
+          
+          <button id="loginBtn" style="width:100%;padding:12px;background:#4cc9f0;color:white;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">
+            Enter Chat
+          </button>
+        </div>
+        
+        <div style="margin-top:20px;font-size:12px;color:#90e0ef;">
+          <div>⚠️ Usernames with "(Ⓜ️)" are banned</div>
+          <div>⏱️ Messages auto-delete after 5 minutes</div>
+          <div>🚫 60 messages/minute limit</div>
+        </div>
+      </div>
+    `;
+    
+    const usernameInput = document.getElementById('usernameInput');
+    const passwordSection = document.getElementById('passwordSection');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginError = document.getElementById('loginError');
+    
+    // Show password field if username is Jackson
+    usernameInput.addEventListener('input', function() {
+      if (this.value.toLowerCase() === 'jackson') {
+        passwordSection.style.display = 'block';
+        passwordInput.focus();
+      } else {
+        passwordSection.style.display = 'none';
+      }
+    });
+    
+    // Login button
+    document.getElementById('loginBtn').onclick = function() {
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      
+      if (!username) {
+        loginError.textContent = 'Enter username';
+        return;
+      }
+      
+      if (username.includes('(Ⓜ️)')) {
+        loginError.textContent = 'Username cannot contain (Ⓜ️)';
+        return;
+      }
+      
+      // Check if Jackson
+      if (username.toLowerCase() === 'jackson') {
+        // Verify Jackson's password from database
+        fetch(DATABASE_URL + '/accounts/Jackson/Password.json')
+          .then(r => r.json())
+          .then(savedPassword => {
+            if (password === savedPassword) {
+              loginError.textContent = '';
+              loadChat(username, true); // true = isJackson
+            } else {
+              loginError.textContent = 'Wrong password for Jackson';
+            }
+          })
+          .catch(error => {
+            loginError.textContent = 'Error checking password';
+          });
+      } else {
+        // Regular user
+        loginError.textContent = '';
+        loadChat(username, false);
+      }
+    };
+  }
+  
+  // Global variable to track if user is mod
+  let currentUserIsMod = false;
+  let currentUserIsJackson = false;
+  let currentUsername = '';
+  
+  // Load chat interface
+  function loadChat(username, isJackson) {
+    currentUsername = username;
+    currentUserIsJackson = isJackson;
+    
+    // Check if user is moderator
+    fetch(DATABASE_URL + '/mods.json')
+      .then(r => r.json())
+      .then(mods => {
+        currentUserIsMod = mods && mods[username] === true;
+        
+        // Load chat UI
+        content.innerHTML = `
+          <div style="color:white;height:100%;display:flex;flex-direction:column;">
+            <!-- Header -->
+            <div style="background:rgba(0,0,0,0.3);padding:10px;border-bottom:1px solid #4cc9f0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  👤 <b>${username}</b>
+                  ${currentUserIsMod ? ' <span style="color:#ffd166;">(Ⓜ️)</span>' : ''}
+                  ${isJackson ? ' <span style="color:#4cc9f0;">[OWNER]</span>' : ''}
+                </div>
+                <button id="logoutBtn" style="padding:5px 10px;background:#e63946;color:white;border:none;border-radius:3px;cursor:pointer;">Logout</button>
+              </div>
+            </div>
+            
+            <!-- Messages Area -->
+            <div id="messagesArea" style="flex:1;overflow-y:auto;padding:10px;background:rgba(0,0,0,0.2);"></div>
+            
+            <!-- Input Area -->
+            <div style="border-top:1px solid #333;padding:10px;background:rgba(0,0,0,0.3);">
+              <textarea id="messageInput" placeholder="Type message (140 chars max)..." 
+                        style="width:100%;height:60px;padding:10px;background:#333;color:white;border:1px solid #4cc9f0;border-radius:5px;resize:none;" 
+                        maxlength="140"></textarea>
+              
+              <div style="display:flex;justify-content:space-between;margin-top:5px;">
+                <div style="color:#90e0ef;font-size:12px;">
+                  <span id="charCount">140</span> chars left
+                  <span id="rateLimit" style="margin-left:10px;">0/60 min</span>
+                </div>
+                <button id="sendBtn" style="padding:8px 20px;background:#4cc9f0;color:white;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">Send</button>
+              </div>
+              
+              <div id="sendStatus" style="margin-top:5px;font-size:12px;min-height:18px;"></div>
+            </div>
+            
+            <!-- REMOVED ADMIN PANEL - ONLY LOGIN PASSWORD REQUIRED FOR JACKSON -->
+          </div>
+        `;
+        
+        // Event Listeners
+        document.getElementById('logoutBtn').onclick = function() {
+          showLogin();
+        };
+        
+        const messageInput = document.getElementById('messageInput');
+        const charCount = document.getElementById('charCount');
+        const rateLimit = document.getElementById('rateLimit');
+        const sendBtn = document.getElementById('sendBtn');
+        const sendStatus = document.getElementById('sendStatus');
+        
+        // Character counter
+        messageInput.addEventListener('input', function() {
+          const remaining = 140 - this.value.length;
+          charCount.textContent = remaining;
+          charCount.style.color = remaining < 20 ? '#ff6b6b' : '#90e0ef';
+        });
+        
+        // Rate limiting
+        function updateRateLimit() {
+          const now = Date.now();
+          const userMessages = messageTracker[username] || [];
+          const recentMessages = userMessages.filter(time => now - time < 60000);
+          rateLimit.textContent = `${recentMessages.length}/60 min`;
+          rateLimit.style.color = recentMessages.length >= 50 ? '#ffd166' : 
+                                 recentMessages.length >= 60 ? '#ff6b6b' : '#90e0ef';
+        }
+        
+        // Load messages
+        function loadMessages() {
+          fetch(DATABASE_URL + '/ChatMessages.json')
+            .then(r => r.json())
+            .then(messages => {
+              const messagesArea = document.getElementById('messagesArea');
+              messagesArea.innerHTML = '';
+              
+              if (!messages) {
+                messagesArea.innerHTML = '<div style="color:#666;text-align:center;padding:20px;">No messages yet</div>';
+                return;
+              }
+              
+              const now = Date.now();
+              const messageArray = [];
+              
+              // Filter and sort messages
+              for (const id in messages) {
+                const msg = messages[id];
+                if (now - msg.timestamp < 300000) { // 5 minutes
+                  messageArray.push({id, ...msg});
+                }
+              }
+              
+              messageArray.sort((a, b) => a.timestamp - b.timestamp);
+              
+              // Display messages
+              messageArray.forEach(msg => {
+                const msgDiv = document.createElement('div');
+                msgDiv.style.cssText = 'margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid ' + (msg.ismod ? '#ffd166' : '#4cc9f0') + ';';
+                
+                // Check if current user can delete this message
+                const canDelete = currentUserIsMod || currentUserIsJackson;
+                
+                msgDiv.innerHTML = `
+                  <div style="display:flex;justify-content:space-between;">
+                    <div style="font-weight:bold;color:${msg.ismod ? '#ffd166' : 'white'}">
+                      ${msg.ismod ? 'Ⓜ️ ' : ''}${msg.username}
+                    </div>
+                    <div style="font-size:11px;color:#90e0ef;">
+                      ${new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                    </div>
+                  </div>
+                  <div style="margin-top:5px;word-break:break-word;">${msg.text}</div>
+                  ${canDelete ? `
+                    <div style="text-align:right;margin-top:5px;">
+                      <button onclick="deleteMessage('${msg.id}')" style="background:#e63946;color:white;border:none;padding:3px 8px;border-radius:3px;font-size:11px;cursor:pointer;">Delete</button>
+                    </div>
+                  ` : ''}
+                `;
+                messagesArea.appendChild(msgDiv);
+              });
+              
+              // Scroll to bottom
+              messagesArea.scrollTop = messagesArea.scrollHeight;
+            });
+        }
+        
+        // Global delete function (FIXED)
+        window.deleteMessage = function(messageId) {
+          if (!currentUserIsMod && !currentUserIsJackson) {
+            sendStatus.textContent = 'You need to be a moderator to delete messages';
+            sendStatus.style.color = '#ff6b6b';
+            return;
+          }
+          
+          fetch(DATABASE_URL + `/ChatMessages/${messageId}.json`, {
+            method: 'DELETE'
+          }).then(() => {
+            loadMessages();
+            sendStatus.textContent = 'Message deleted ✓';
+            sendStatus.style.color = '#06d6a0';
+            setTimeout(() => {
+              sendStatus.textContent = '';
+            }, 2000);
+          }).catch(error => {
+            sendStatus.textContent = 'Error deleting message';
+            sendStatus.style.color = '#ff6b6b';
+          });
+        };
+        
+        // Send message
+        sendBtn.onclick = function() {
+          const text = messageInput.value.trim();
+          if (!text) {
+            sendStatus.textContent = 'Message is empty';
+            sendStatus.style.color = '#ff6b6b';
+            return;
+          }
+          
+          // Rate limiting
+          const now = Date.now();
+          if (!messageTracker[username]) messageTracker[username] = [];
+          const recentMessages = messageTracker[username].filter(time => now - time < 60000);
+          
+          if (recentMessages.length >= 60) {
+            sendStatus.textContent = 'Rate limit: 60 messages/minute';
+            sendStatus.style.color = '#ff6b6b';
+            updateRateLimit();
+            return;
+          }
+          
+          // Prepare message
+          const messageData = {
+            text: text,
+            username: username,
+            ismod: currentUserIsMod,
+            timestamp: now
+          };
+          
+          // Send to Firebase
+          fetch(DATABASE_URL + '/ChatMessages.json', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(messageData)
+          })
+          .then(response => {
+            if (response.ok) {
+              messageTracker[username].push(now);
+              messageInput.value = '';
+              charCount.textContent = '140';
+              charCount.style.color = '#90e0ef';
+              sendStatus.textContent = 'Message sent ✓';
+              sendStatus.style.color = '#06d6a0';
+              updateRateLimit();
+              
+              // Reload messages
+              setTimeout(loadMessages, 500);
+              
+              // Clear status after 2 seconds
+              setTimeout(() => {
+                sendStatus.textContent = '';
+              }, 2000);
+            } else {
+              sendStatus.textContent = 'Error sending message';
+              sendStatus.style.color = '#ff6b6b';
+            }
+          })
+          .catch(error => {
+            sendStatus.textContent = 'Network error';
+            sendStatus.style.color = '#ff6b6b';
+          });
+        };
+        
+        // Send on Enter key
+        messageInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendBtn.click();
+          }
+        });
+        
+        // Initial load
+        loadMessages();
+        updateRateLimit();
+        
+        // Auto-refresh messages every 5 seconds
+        setInterval(loadMessages, 5000);
+        
+        // Auto-delete old messages (client-side trigger)
+        setInterval(() => {
+          const cutoff = Date.now() - 300000; // 5 minutes
+          fetch(DATABASE_URL + '/ChatMessages.json')
+            .then(r => r.json())
+            .then(messages => {
+              if (!messages) return;
+              
+              const updates = {};
+              for (const id in messages) {
+                if (messages[id].timestamp < cutoff) {
+                  updates[id] = null;
+                }
+              }
+              
+              if (Object.keys(updates).length > 0) {
+                fetch(DATABASE_URL + '/ChatMessages.json', {
+                  method: 'PATCH',
+                  body: JSON.stringify(updates)
+                });
+              }
+            });
+        }, 30000); // Check every 30 seconds
+        
+      })
+      .catch(error => {
+        content.innerHTML = `<div style="color:#ff6b6b;padding:20px;">Error: ${error.message}</div>`;
+      });
+  }
+  
+  // Start with login screen
+  showLogin();
+})();
+// === END OF CODE ===
+
