@@ -1,41 +1,25 @@
-// === PASTE THIS ENTIRE CODE INTO BROWSER CONSOLE ===
+// === PASTE THIS ENTIRE CODE INTO BROWSER CONSOLE made by jackson ===
 (function() {
-  // Your Firebase Database URL
   const DATABASE_URL = "https://online-chat-mmc-default-rtdb.firebaseio.com";
   
   // Create chat frame
   const frame = document.createElement('div');
   frame.id = 'chatFrame';
   frame.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    width: 450px;
-    height: 600px;
-    background: #1a1a2e;
-    border: 3px solid #4cc9f0;
-    border-radius: 10px;
-    box-shadow: 0 5px 25px rgba(0,0,0,0.5);
-    z-index: 999999;
-    display: flex;
-    flex-direction: column;
-    font-family: Arial, sans-serif;
-    overflow: hidden;
-    resize: both;
+    position: fixed; top: 20px; right: 20px; width: 450px; height: 600px;
+    background: #1a1a2e; border: 3px solid #4cc9f0; border-radius: 10px;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.5); z-index: 999999;
+    display: flex; flex-direction: column; font-family: Arial, sans-serif;
+    overflow: hidden; resize: both;
   `;
   
-  // Header
   const header = document.createElement('div');
   header.innerHTML = '<b>🔥 Live Chat</b> <span id="minBtn" style="float:right;cursor:pointer;margin-left:10px;">🗕</span>';
   header.style.cssText = `
     background: linear-gradient(90deg, #4cc9f0 0%, #4361ee 100%);
-    color: white;
-    padding: 10px;
-    cursor: move;
-    user-select: none;
+    color: white; padding: 10px; cursor: move; user-select: none;
   `;
   
-  // Content area
   const content = document.createElement('div');
   content.id = 'chatContent';
   content.style.cssText = 'flex:1;overflow-y:auto;background:#0d1b2a;padding:10px;';
@@ -79,8 +63,82 @@
     }
   };
   
-  // Message rate tracker
   const messageTracker = {};
+  
+  // Spam Detection System
+  async function checkSpamStatus(username) {
+    try {
+      // Check if user is blocked
+      const blockRes = await fetch(`${DATABASE_URL}/spamBlocked/${username}.json`);
+      const blockUntil = await blockRes.json();
+      
+      if (blockUntil && blockUntil > Date.now()) {
+        const remainingTime = Math.ceil((blockUntil - Date.now()) / 1000);
+        return {
+          blocked: true,
+          message: `⛔ Spam detected! Blocked for ${remainingTime} seconds`,
+          timeRemaining: remainingTime
+        };
+      }
+      
+      return { blocked: false };
+    } catch (error) {
+      return { blocked: false };
+    }
+  }
+
+  async function updateSpamCount(username) {
+    try {
+      // Get current spam count
+      const countRes = await fetch(`${DATABASE_URL}/spamCount/${username}.json`);
+      let count = await countRes.json() || 0;
+      
+      // Increment count
+      count++;
+      
+      // Update count in database
+      await fetch(`${DATABASE_URL}/spamCount/${username}.json`, {
+        method: 'PUT',
+        body: JSON.stringify(count)
+      });
+      
+      // Check if spam threshold exceeded (20 messages)
+      if (count > 20) {
+        // Detect spam pattern: if count keeps growing, it's spam
+        const blockDuration = Math.min(count * 2000, 120000); // 2s per message over 20, max 2 minutes
+        const blockUntil = Date.now() + blockDuration;
+        
+        // Block user
+        await fetch(`${DATABASE_URL}/spamBlocked/${username}.json`, {
+          method: 'PUT',
+          body: JSON.stringify(blockUntil)
+        });
+        
+        return {
+          isSpam: true,
+          blockDuration: Math.ceil(blockDuration / 1000)
+        };
+      }
+      
+      // Decay spam count over time (reset after 30 seconds of no messages)
+      setTimeout(async () => {
+        const currentCountRes = await fetch(`${DATABASE_URL}/spamCount/${username}.json`);
+        const currentCount = await currentCountRes.json() || 0;
+        
+        if (currentCount > 0) {
+          await fetch(`${DATABASE_URL}/spamCount/${username}.json`, {
+            method: 'PUT',
+            body: JSON.stringify(Math.max(0, currentCount - 5))
+          });
+        }
+      }, 30000);
+      
+      return { isSpam: false, count };
+      
+    } catch (error) {
+      return { isSpam: false };
+    }
+  }
   
   // Show login screen
   function showLogin() {
@@ -88,11 +146,11 @@
       <div style="color:white;text-align:center;padding:20px;">
         <h3 style="margin-top:0;">💬 Live Chat Login</h3>
         <div style="background:rgba(255,255,255,0.1);padding:20px;border-radius:8px;">
-          <input type="text" id="usernameInput" placeholder="Enter username (no Ⓜ️)" 
+          <input type="text" id="usernameInput" placeholder="Enter username" 
                  style="width:100%;padding:10px;margin-bottom:10px;background:#333;color:white;border:1px solid #4cc9f0;border-radius:5px;">
           
           <div id="passwordSection" style="display:none;">
-            <input type="password" id="passwordInput" placeholder="Jackson's password" 
+            <input type="password" id="passwordInput" placeholder="Enter your password" 
                    style="width:100%;padding:10px;margin-bottom:10px;background:#333;color:white;border:1px solid #ffd166;border-radius:5px;">
           </div>
           
@@ -104,9 +162,10 @@
         </div>
         
         <div style="margin-top:20px;font-size:12px;color:#90e0ef;">
-          <div>⚠️ Usernames with "(Ⓜ️)" are banned</div>
+          <div>🔐 Mods need password to login</div>
           <div>⏱️ Messages auto-delete after 5 minutes</div>
           <div>🚫 60 messages/minute limit</div>
+          <div>🛡️ Spam detection: 20+ messages = auto-block</div>
         </div>
       </div>
     `;
@@ -116,18 +175,37 @@
     const passwordInput = document.getElementById('passwordInput');
     const loginError = document.getElementById('loginError');
     
-    // Show password field if username is Jackson
-    usernameInput.addEventListener('input', function() {
-      if (this.value.toLowerCase() === 'jackson') {
-        passwordSection.style.display = 'block';
-        passwordInput.focus();
-      } else {
+    // Check if user needs password (is a mod)
+    usernameInput.addEventListener('input', async function() {
+      const username = this.value.trim();
+      if (!username) {
+        passwordSection.style.display = 'none';
+        return;
+      }
+      
+      try {
+        // Check if user is a mod
+        const modRes = await fetch(`${DATABASE_URL}/mods/${username}.json`);
+        const isMod = await modRes.json();
+        
+        // Check if user has password
+        const passRes = await fetch(`${DATABASE_URL}/accounts/${username}/Password.json`);
+        const hasPassword = await passRes.json();
+        
+        // Show password field if user is a mod OR has password
+        if (isMod === true || hasPassword) {
+          passwordSection.style.display = 'block';
+          passwordInput.placeholder = "Enter your password";
+        } else {
+          passwordSection.style.display = 'none';
+        }
+      } catch (error) {
         passwordSection.style.display = 'none';
       }
     });
     
     // Login button
-    document.getElementById('loginBtn').onclick = function() {
+    document.getElementById('loginBtn').onclick = async function() {
       const username = usernameInput.value.trim();
       const password = passwordInput.value;
       
@@ -136,36 +214,39 @@
         return;
       }
       
-      if (username.includes('(Ⓜ️)')) {
-        loginError.textContent = 'Username cannot contain (Ⓜ️)';
-        return;
-      }
-      
-      // Check if Jackson
-      if (username.toLowerCase() === 'jackson') {
-        // Verify Jackson's password from database
-        fetch(DATABASE_URL + '/accounts/Jackson/Password.json')
-          .then(r => r.json())
-          .then(savedPassword => {
-            if (password === savedPassword) {
-              loginError.textContent = '';
-              loadChat(username, true); // true = isJackson
-            } else {
-              loginError.textContent = 'Wrong password for Jackson';
-            }
-          })
-          .catch(error => {
-            loginError.textContent = 'Error checking password';
-          });
-      } else {
-        // Regular user
+      try {
+        // Check if user is a mod
+        const modRes = await fetch(`${DATABASE_URL}/mods/${username}.json`);
+        const isMod = await modRes.json();
+        
+        // Check if user has password
+        const passRes = await fetch(`${DATABASE_URL}/accounts/${username}/Password.json`);
+        const savedPassword = await passRes.json();
+        
+        // If user is a mod or has password, require password
+        if (isMod === true || savedPassword) {
+          if (!password) {
+            loginError.textContent = 'Password required for this account';
+            return;
+          }
+          
+          if (password !== savedPassword) {
+            loginError.textContent = 'Wrong password';
+            return;
+          }
+        }
+        
+        // Login successful
         loginError.textContent = '';
-        loadChat(username, false);
+        loadChat(username, username.toLowerCase() === 'jackson');
+        
+      } catch (error) {
+        loginError.textContent = 'Error logging in';
       }
     };
   }
   
-  // Global variable to track if user is mod
+  // Global variables
   let currentUserIsMod = false;
   let currentUserIsJackson = false;
   let currentUsername = '';
@@ -184,7 +265,6 @@
         // Load chat UI
         content.innerHTML = `
           <div style="color:white;height:100%;display:flex;flex-direction:column;">
-            <!-- Header -->
             <div style="background:rgba(0,0,0,0.3);padding:10px;border-bottom:1px solid #4cc9f0;">
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <div>
@@ -196,10 +276,8 @@
               </div>
             </div>
             
-            <!-- Messages Area -->
             <div id="messagesArea" style="flex:1;overflow-y:auto;padding:10px;background:rgba(0,0,0,0.2);"></div>
             
-            <!-- Input Area -->
             <div style="border-top:1px solid #333;padding:10px;background:rgba(0,0,0,0.3);">
               <textarea id="messageInput" placeholder="Type message (140 chars max)..." 
                         style="width:100%;height:60px;padding:10px;background:#333;color:white;border:1px solid #4cc9f0;border-radius:5px;resize:none;" 
@@ -209,6 +287,7 @@
                 <div style="color:#90e0ef;font-size:12px;">
                   <span id="charCount">140</span> chars left
                   <span id="rateLimit" style="margin-left:10px;">0/60 min</span>
+                  <span id="spamCount" style="margin-left:10px;"></span>
                 </div>
                 <button id="sendBtn" style="padding:8px 20px;background:#4cc9f0;color:white;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">Send</button>
               </div>
@@ -216,18 +295,46 @@
               <div id="sendStatus" style="margin-top:5px;font-size:12px;min-height:18px;"></div>
             </div>
             
-            <!-- REMOVED ADMIN PANEL - ONLY LOGIN PASSWORD REQUIRED FOR JACKSON -->
+            ${isJackson ? `
+              <div style="border-top:2px solid #ffd166;padding:10px;background:rgba(255,209,102,0.1);">
+                <div style="color:#ffd166;font-weight:bold;margin-bottom:10px;">👑 Admin Panel - Add Moderator</div>
+                <div style="display:flex;gap:10px;margin-bottom:10px;">
+                  <input type="text" id="modUsername" placeholder="Username" 
+                         style="flex:1;padding:8px;background:#333;color:white;border:1px solid #ffd166;border-radius:4px;">
+                  <input type="password" id="modPassword" placeholder="Choose password" 
+                         style="flex:1;padding:8px;background:#333;color:white;border:1px solid #ffd166;border-radius:4px;">
+                </div>
+                <button id="addModBtn" style="width:100%;padding:10px;background:#ffd166;color:black;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">
+                  Add as Moderator
+                </button>
+                <div id="adminStatus" style="margin-top:10px;font-size:12px;min-height:18px;"></div>
+                
+                <div style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,209,102,0.3);">
+                  <div style="color:#ffd166;font-size:12px;margin-bottom:5px;">Current Moderators:</div>
+                  <div id="modsList" style="font-size:12px;color:#90e0ef;">Loading...</div>
+                </div>
+                
+                <div style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,209,102,0.3);">
+                  <div style="color:#ffd166;font-size:12px;margin-bottom:5px;">Spam Management:</div>
+                  <input type="text" id="unblockUsername" placeholder="Username to unblock" 
+                         style="width:100%;padding:8px;margin-bottom:5px;background:#333;color:white;border:1px solid #ffd166;border-radius:4px;">
+                  <button id="unblockBtn" style="width:100%;padding:8px;background:#06d6a0;color:white;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">
+                    Unblock User
+                  </button>
+                  <div id="unblockStatus" style="margin-top:5px;font-size:12px;min-height:18px;"></div>
+                </div>
+              </div>
+            ` : ''}
           </div>
         `;
         
         // Event Listeners
-        document.getElementById('logoutBtn').onclick = function() {
-          showLogin();
-        };
+        document.getElementById('logoutBtn').onclick = showLogin;
         
         const messageInput = document.getElementById('messageInput');
         const charCount = document.getElementById('charCount');
         const rateLimit = document.getElementById('rateLimit');
+        const spamCountEl = document.getElementById('spamCount');
         const sendBtn = document.getElementById('sendBtn');
         const sendStatus = document.getElementById('sendStatus');
         
@@ -246,6 +353,23 @@
           rateLimit.textContent = `${recentMessages.length}/60 min`;
           rateLimit.style.color = recentMessages.length >= 50 ? '#ffd166' : 
                                  recentMessages.length >= 60 ? '#ff6b6b' : '#90e0ef';
+        }
+        
+        // Update spam count display
+        async function updateSpamDisplay() {
+          try {
+            const countRes = await fetch(`${DATABASE_URL}/spamCount/${username}.json`);
+            const count = await countRes.json() || 0;
+            
+            if (count > 0) {
+              spamCountEl.textContent = `🛡️ ${count}/20`;
+              spamCountEl.style.color = count > 15 ? '#ffd166' : '#90e0ef';
+            } else {
+              spamCountEl.textContent = '';
+            }
+          } catch (error) {
+            spamCountEl.textContent = '';
+          }
         }
         
         // Load messages
@@ -279,13 +403,13 @@
                 const msgDiv = document.createElement('div');
                 msgDiv.style.cssText = 'margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid ' + (msg.ismod ? '#ffd166' : '#4cc9f0') + ';';
                 
-                // Check if current user can delete this message
-                const canDelete = currentUserIsMod || currentUserIsJackson;
+                const canDelete = currentUserIsMod || currentUserIsJackson || msg.username === username;
                 
                 msgDiv.innerHTML = `
                   <div style="display:flex;justify-content:space-between;">
                     <div style="font-weight:bold;color:${msg.ismod ? '#ffd166' : 'white'}">
                       ${msg.ismod ? 'Ⓜ️ ' : ''}${msg.username}
+                      ${msg.username === username ? ' <span style="color:#4cc9f0;font-size:10px;">(you)</span>' : ''}
                     </div>
                     <div style="font-size:11px;color:#90e0ef;">
                       ${new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
@@ -301,39 +425,160 @@
                 messagesArea.appendChild(msgDiv);
               });
               
-              // Scroll to bottom
               messagesArea.scrollTop = messagesArea.scrollHeight;
             });
         }
         
-        // Global delete function (FIXED)
-        window.deleteMessage = function(messageId) {
-          if (!currentUserIsMod && !currentUserIsJackson) {
-            sendStatus.textContent = 'You need to be a moderator to delete messages';
-            sendStatus.style.color = '#ff6b6b';
-            return;
+        // Load moderators list for Jackson
+        if (isJackson) {
+          function loadModerators() {
+            fetch(DATABASE_URL + '/mods.json')
+              .then(r => r.json())
+              .then(mods => {
+                const modsList = document.getElementById('modsList');
+                if (!mods) {
+                  modsList.innerHTML = 'No moderators yet';
+                  return;
+                }
+                
+                const modNames = Object.keys(mods).filter(name => mods[name] === true);
+                if (modNames.length === 0) {
+                  modsList.innerHTML = 'No moderators yet';
+                } else {
+                  modsList.innerHTML = modNames.map(name => 
+                    `<div style="margin-bottom:3px;">• ${name}</div>`
+                  ).join('');
+                }
+              });
           }
           
+          loadModerators();
+          
+          // Add moderator button
+          document.getElementById('addModBtn').onclick = async function() {
+            const modUsername = document.getElementById('modUsername').value.trim();
+            const modPassword = document.getElementById('modPassword').value.trim();
+            const adminStatus = document.getElementById('adminStatus');
+            
+            if (!modUsername) {
+              adminStatus.textContent = 'Enter username';
+              adminStatus.style.color = '#ff6b6b';
+              return;
+            }
+            
+            if (!modPassword) {
+              adminStatus.textContent = 'Choose a password';
+              adminStatus.style.color = '#ff6b6b';
+              return;
+            }
+            
+            if (modUsername.toLowerCase() === 'jackson') {
+              adminStatus.textContent = 'Jackson is already owner';
+              adminStatus.style.color = '#ff6b6b';
+              return;
+            }
+            
+            try {
+              // 1. Add to mods list
+              await fetch(`${DATABASE_URL}/mods/${modUsername}.json`, {
+                method: 'PUT',
+                body: JSON.stringify(true)
+              });
+              
+              // 2. Create account with password
+              await fetch(`${DATABASE_URL}/accounts/${modUsername}/Password.json`, {
+                method: 'PUT',
+                body: JSON.stringify(modPassword)
+              });
+              
+              adminStatus.textContent = `✅ ${modUsername} added as moderator!`;
+              adminStatus.style.color = '#06d6a0';
+              
+              // Clear inputs
+              document.getElementById('modUsername').value = '';
+              document.getElementById('modPassword').value = '';
+              
+              // Refresh mods list
+              loadModerators();
+              
+              // Clear status after 3 seconds
+              setTimeout(() => {
+                adminStatus.textContent = '';
+              }, 3000);
+              
+            } catch (error) {
+              adminStatus.textContent = 'Error adding moderator';
+              adminStatus.style.color = '#ff6b6b';
+            }
+          };
+          
+          // Unblock user button
+          document.getElementById('unblockBtn').onclick = async function() {
+            const unblockUsername = document.getElementById('unblockUsername').value.trim();
+            const unblockStatus = document.getElementById('unblockStatus');
+            
+            if (!unblockUsername) {
+              unblockStatus.textContent = 'Enter username';
+              unblockStatus.style.color = '#ff6b6b';
+              return;
+            }
+            
+            try {
+              // Remove spam block
+              await fetch(`${DATABASE_URL}/spamBlocked/${unblockUsername}.json`, {
+                method: 'DELETE'
+              });
+              
+              // Reset spam count
+              await fetch(`${DATABASE_URL}/spamCount/${unblockUsername}.json`, {
+                method: 'PUT',
+                body: JSON.stringify(0)
+              });
+              
+              unblockStatus.textContent = `✅ ${unblockUsername} unblocked!`;
+              unblockStatus.style.color = '#06d6a0';
+              
+              document.getElementById('unblockUsername').value = '';
+              
+              setTimeout(() => {
+                unblockStatus.textContent = '';
+              }, 3000);
+              
+            } catch (error) {
+              unblockStatus.textContent = 'Error unblocking user';
+              unblockStatus.style.color = '#ff6b6b';
+            }
+          };
+        }
+        
+        // Global delete function
+        window.deleteMessage = function(messageId) {
           fetch(DATABASE_URL + `/ChatMessages/${messageId}.json`, {
             method: 'DELETE'
           }).then(() => {
             loadMessages();
             sendStatus.textContent = 'Message deleted ✓';
             sendStatus.style.color = '#06d6a0';
-            setTimeout(() => {
-              sendStatus.textContent = '';
-            }, 2000);
+            setTimeout(() => { sendStatus.textContent = ''; }, 2000);
           }).catch(error => {
             sendStatus.textContent = 'Error deleting message';
             sendStatus.style.color = '#ff6b6b';
           });
         };
         
-        // Send message
-        sendBtn.onclick = function() {
+        // Send message with spam detection
+        sendBtn.onclick = async function() {
           const text = messageInput.value.trim();
           if (!text) {
             sendStatus.textContent = 'Message is empty';
+            sendStatus.style.color = '#ff6b6b';
+            return;
+          }
+          
+          // Check spam status FIRST
+          const spamCheck = await checkSpamStatus(username);
+          if (spamCheck.blocked) {
+            sendStatus.textContent = spamCheck.message;
             sendStatus.style.color = '#ff6b6b';
             return;
           }
@@ -364,23 +609,41 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(messageData)
           })
-          .then(response => {
+          .then(async response => {
             if (response.ok) {
+              // Update spam detection
+              const spamResult = await updateSpamCount(username);
+              
+              if (spamResult.isSpam) {
+                sendStatus.textContent = `⚠️ SPAM DETECTED! Blocked for ${spamResult.blockDuration}s`;
+                sendStatus.style.color = '#ff6b6b';
+                setTimeout(() => {
+                  sendStatus.textContent = '';
+                  checkSpamStatus(username); // Recheck when unblocked
+                  updateSpamDisplay();
+                }, spamResult.blockDuration * 1000);
+                return;
+              }
+              
               messageTracker[username].push(now);
               messageInput.value = '';
               charCount.textContent = '140';
               charCount.style.color = '#90e0ef';
-              sendStatus.textContent = 'Message sent ✓';
-              sendStatus.style.color = '#06d6a0';
+              
+              // Show spam count warning
+              if (spamResult.count > 15) {
+                sendStatus.textContent = `⚠️ Warning: ${spamResult.count}/20 messages (slow down!)`;
+                sendStatus.style.color = '#ffd166';
+              } else {
+                sendStatus.textContent = 'Message sent ✓';
+                sendStatus.style.color = '#06d6a0';
+              }
+              
               updateRateLimit();
+              updateSpamDisplay();
               
-              // Reload messages
               setTimeout(loadMessages, 500);
-              
-              // Clear status after 2 seconds
-              setTimeout(() => {
-                sendStatus.textContent = '';
-              }, 2000);
+              setTimeout(() => { sendStatus.textContent = ''; }, 2000);
             } else {
               sendStatus.textContent = 'Error sending message';
               sendStatus.style.color = '#ff6b6b';
@@ -403,33 +666,11 @@
         // Initial load
         loadMessages();
         updateRateLimit();
+        updateSpamDisplay();
         
         // Auto-refresh messages every 5 seconds
         setInterval(loadMessages, 5000);
-        
-        // Auto-delete old messages (client-side trigger)
-        setInterval(() => {
-          const cutoff = Date.now() - 300000; // 5 minutes
-          fetch(DATABASE_URL + '/ChatMessages.json')
-            .then(r => r.json())
-            .then(messages => {
-              if (!messages) return;
-              
-              const updates = {};
-              for (const id in messages) {
-                if (messages[id].timestamp < cutoff) {
-                  updates[id] = null;
-                }
-              }
-              
-              if (Object.keys(updates).length > 0) {
-                fetch(DATABASE_URL + '/ChatMessages.json', {
-                  method: 'PATCH',
-                  body: JSON.stringify(updates)
-                });
-              }
-            });
-        }, 30000); // Check every 30 seconds
+        setInterval(updateSpamDisplay, 5000);
         
       })
       .catch(error => {
@@ -441,4 +682,5 @@
   showLogin();
 })();
 // === END OF CODE ===
+
 
