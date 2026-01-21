@@ -1,3 +1,5 @@
+
+﻿
 // === PASTE THIS ENTIRE CODE INTO BROWSER CONSOLE made by jackson ===
 (function() {
   const DATABASE_URL = "https://online-chat-mmc-default-rtdb.firebaseio.com";
@@ -166,6 +168,7 @@
           <div>⏱️ Messages auto-delete after 5 minutes</div>
           <div>🚫 60 messages/minute limit</div>
           <div>🛡️ Spam detection: 20+ messages = auto-block</div>
+          <div>🗑️ Mods can delete messages</div>
         </div>
       </div>
     `;
@@ -270,9 +273,14 @@
                 <div>
                   👤 <b>${username}</b>
                   ${currentUserIsMod ? ' <span style="color:#ffd166;">(Ⓜ️)</span>' : ''}
-                  ${isJackson ? ' <span style="color:#4cc9f0;">[OWNER]</span>' : ''}
+                  ${isJackson ? ' <span style="color:#4cc9f0;"> </span>' : ''}
                 </div>
-                <button id="logoutBtn" style="padding:5px 10px;background:#e63946;color:white;border:none;border-radius:3px;cursor:pointer;">Logout</button>
+                <div>
+                  ${currentUserIsMod ? 
+                    '<button id="deleteAllBtn" style="padding:5px 10px;background:#e63946;color:white;border:none;border-radius:3px;cursor:pointer;margin-right:10px;">Delete All</button>' 
+                    : ''}
+                  <button id="logoutBtn" style="padding:5px 10px;background:#e63946;color:white;border:none;border-radius:3px;cursor:pointer;">Logout</button>
+                </div>
               </div>
             </div>
             
@@ -294,42 +302,62 @@
               
               <div id="sendStatus" style="margin-top:5px;font-size:12px;min-height:18px;"></div>
             </div>
-            
-            ${isJackson ? `
-              <div style="border-top:2px solid #ffd166;padding:10px;background:rgba(255,209,102,0.1);">
-                <div style="color:#ffd166;font-weight:bold;margin-bottom:10px;">👑 Admin Panel - Add Moderator</div>
-                <div style="display:flex;gap:10px;margin-bottom:10px;">
-                  <input type="text" id="modUsername" placeholder="Username" 
-                         style="flex:1;padding:8px;background:#333;color:white;border:1px solid #ffd166;border-radius:4px;">
-                  <input type="password" id="modPassword" placeholder="Choose password" 
-                         style="flex:1;padding:8px;background:#333;color:white;border:1px solid #ffd166;border-radius:4px;">
-                </div>
-                <button id="addModBtn" style="width:100%;padding:10px;background:#ffd166;color:black;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">
-                  Add as Moderator
-                </button>
-                <div id="adminStatus" style="margin-top:10px;font-size:12px;min-height:18px;"></div>
-                
-                <div style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,209,102,0.3);">
-                  <div style="color:#ffd166;font-size:12px;margin-bottom:5px;">Current Moderators:</div>
-                  <div id="modsList" style="font-size:12px;color:#90e0ef;">Loading...</div>
-                </div>
-                
-                <div style="margin-top:15px;padding-top:15px;border-top:1px solid rgba(255,209,102,0.3);">
-                  <div style="color:#ffd166;font-size:12px;margin-bottom:5px;">Spam Management:</div>
-                  <input type="text" id="unblockUsername" placeholder="Username to unblock" 
-                         style="width:100%;padding:8px;margin-bottom:5px;background:#333;color:white;border:1px solid #ffd166;border-radius:4px;">
-                  <button id="unblockBtn" style="width:100%;padding:8px;background:#06d6a0;color:white;border:none;border-radius:5px;font-weight:bold;cursor:pointer;">
-                    Unblock User
-                  </button>
-                  <div id="unblockStatus" style="margin-top:5px;font-size:12px;min-height:18px;"></div>
-                </div>
-              </div>
-            ` : ''}
           </div>
         `;
         
         // Event Listeners
         document.getElementById('logoutBtn').onclick = showLogin;
+        
+        // Delete All Messages button (for mods only)
+        if (currentUserIsMod) {
+          document.getElementById('deleteAllBtn').onclick = async function() {
+            if (!confirm('Are you sure you want to delete ALL messages? This action cannot be undone.')) {
+              return;
+            }
+            
+            const deleteAllStatus = document.getElementById('sendStatus');
+            deleteAllStatus.textContent = 'Deleting all messages...';
+            deleteAllStatus.style.color = '#ffd166';
+            
+            try {
+              // Fetch all messages first
+              const messagesRes = await fetch(`${DATABASE_URL}/ChatMessages.json`);
+              const messages = await messagesRes.json();
+              
+              if (!messages) {
+                deleteAllStatus.textContent = 'No messages to delete';
+                deleteAllStatus.style.color = '#90e0ef';
+                return;
+              }
+              
+              // Delete each message individually
+              const messageIds = Object.keys(messages);
+              let deletedCount = 0;
+              
+              for (const messageId of messageIds) {
+                await fetch(`${DATABASE_URL}/ChatMessages/${messageId}.json`, {
+                  method: 'DELETE'
+                });
+                deletedCount++;
+              }
+              
+              deleteAllStatus.textContent = `✅ Deleted ${deletedCount} messages`;
+              deleteAllStatus.style.color = '#06d6a0';
+              
+              // Reload messages
+              setTimeout(loadMessages, 500);
+              
+              // Clear status after 3 seconds
+              setTimeout(() => {
+                deleteAllStatus.textContent = '';
+              }, 3000);
+              
+            } catch (error) {
+              deleteAllStatus.textContent = 'Error deleting messages';
+              deleteAllStatus.style.color = '#ff6b6b';
+            }
+          };
+        }
         
         const messageInput = document.getElementById('messageInput');
         const charCount = document.getElementById('charCount');
@@ -403,7 +431,7 @@
                 const msgDiv = document.createElement('div');
                 msgDiv.style.cssText = 'margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid ' + (msg.ismod ? '#ffd166' : '#4cc9f0') + ';';
                 
-                const canDelete = currentUserIsMod || currentUserIsJackson || msg.username === username;
+                const canDelete = currentUserIsMod || msg.username === username;
                 
                 msgDiv.innerHTML = `
                   <div style="display:flex;justify-content:space-between;">
@@ -427,128 +455,6 @@
               
               messagesArea.scrollTop = messagesArea.scrollHeight;
             });
-        }
-        
-        // Load moderators list for Jackson
-        if (isJackson) {
-          function loadModerators() {
-            fetch(DATABASE_URL + '/mods.json')
-              .then(r => r.json())
-              .then(mods => {
-                const modsList = document.getElementById('modsList');
-                if (!mods) {
-                  modsList.innerHTML = 'No moderators yet';
-                  return;
-                }
-                
-                const modNames = Object.keys(mods).filter(name => mods[name] === true);
-                if (modNames.length === 0) {
-                  modsList.innerHTML = 'No moderators yet';
-                } else {
-                  modsList.innerHTML = modNames.map(name => 
-                    `<div style="margin-bottom:3px;">• ${name}</div>`
-                  ).join('');
-                }
-              });
-          }
-          
-          loadModerators();
-          
-          // Add moderator button
-          document.getElementById('addModBtn').onclick = async function() {
-            const modUsername = document.getElementById('modUsername').value.trim();
-            const modPassword = document.getElementById('modPassword').value.trim();
-            const adminStatus = document.getElementById('adminStatus');
-            
-            if (!modUsername) {
-              adminStatus.textContent = 'Enter username';
-              adminStatus.style.color = '#ff6b6b';
-              return;
-            }
-            
-            if (!modPassword) {
-              adminStatus.textContent = 'Choose a password';
-              adminStatus.style.color = '#ff6b6b';
-              return;
-            }
-            
-            if (modUsername.toLowerCase() === 'jackson') {
-              adminStatus.textContent = 'Jackson is already owner';
-              adminStatus.style.color = '#ff6b6b';
-              return;
-            }
-            
-            try {
-              // 1. Add to mods list
-              await fetch(`${DATABASE_URL}/mods/${modUsername}.json`, {
-                method: 'PUT',
-                body: JSON.stringify(true)
-              });
-              
-              // 2. Create account with password
-              await fetch(`${DATABASE_URL}/accounts/${modUsername}/Password.json`, {
-                method: 'PUT',
-                body: JSON.stringify(modPassword)
-              });
-              
-              adminStatus.textContent = `✅ ${modUsername} added as moderator!`;
-              adminStatus.style.color = '#06d6a0';
-              
-              // Clear inputs
-              document.getElementById('modUsername').value = '';
-              document.getElementById('modPassword').value = '';
-              
-              // Refresh mods list
-              loadModerators();
-              
-              // Clear status after 3 seconds
-              setTimeout(() => {
-                adminStatus.textContent = '';
-              }, 3000);
-              
-            } catch (error) {
-              adminStatus.textContent = 'Error adding moderator';
-              adminStatus.style.color = '#ff6b6b';
-            }
-          };
-          
-          // Unblock user button
-          document.getElementById('unblockBtn').onclick = async function() {
-            const unblockUsername = document.getElementById('unblockUsername').value.trim();
-            const unblockStatus = document.getElementById('unblockStatus');
-            
-            if (!unblockUsername) {
-              unblockStatus.textContent = 'Enter username';
-              unblockStatus.style.color = '#ff6b6b';
-              return;
-            }
-            
-            try {
-              // Remove spam block
-              await fetch(`${DATABASE_URL}/spamBlocked/${unblockUsername}.json`, {
-                method: 'DELETE'
-              });
-              
-              // Reset spam count
-              await fetch(`${DATABASE_URL}/spamCount/${unblockUsername}.json`, {
-                method: 'PUT',
-                body: JSON.stringify(0)
-              });
-              
-              unblockStatus.textContent = `✅ ${unblockUsername} unblocked!`;
-              unblockStatus.style.color = '#06d6a0';
-              
-              document.getElementById('unblockUsername').value = '';
-              
-              setTimeout(() => {
-                unblockStatus.textContent = '';
-              }, 3000);
-              
-            } catch (error) {
-              unblockStatus.textContent = 'Error unblocking user';
-              unblockStatus.style.color = '#ff6b6b';
-            }
-          };
         }
         
         // Global delete function
@@ -681,6 +587,4 @@
   // Start with login screen
   showLogin();
 })();
-// === END OF CODE ===
-
-
+// === END OF CODE OWNER ===
