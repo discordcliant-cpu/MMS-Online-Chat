@@ -175,7 +175,9 @@
     gravity: 1400, jumpV: -480, baseSpeed: 220, speed: 220,
     score: 0, best: 0,
     speedMultiplier: 1,
-    mode: 'cube'
+    mode: 'cube',
+    gravityMode: 'normal',
+    flipCooldown: 0
   };
 
 
@@ -186,7 +188,9 @@
     trail: [],
     rotation: 0,
     tilt: 0,
-    cubeRotationSpeed: 0
+    cubeRotationSpeed: 0,
+    gravityFlipped: false,
+    gravityOrbs: []
   };
 
 
@@ -251,10 +255,20 @@
   ];
 
 
+  /* ---------- Speed Modes ---------- */
+  const SPEED_MODES = [
+    { name: 'slow', multiplier: 0.5, color: '#00ccff' },
+    { name: 'normal', multiplier: 1.0, color: '#00ff00' },
+    { name: 'fast', multiplier: 1.5, color: '#ff9900' },
+    { name: 'veryFast', multiplier: 2.0, color: '#ff3366' },
+    { name: 'insane', multiplier: 3.0, color: '#ff00ff' }
+  ];
+
+
   /* ---------- Wave Mode ---------- */
   const waveMode = {
-    hitboxWidth: 20,
-    hitboxHeight: 20,
+    hitboxWidth: 24, // Reduced from 34
+    hitboxHeight: 24, // Reduced from 34
     iconWidth: 34,
     iconHeight: 34,
     waveSpeed: 400,
@@ -262,10 +276,64 @@
   };
 
 
-  /* ---------- Main Level (FIXED: Spikes moved further right) ---------- */
+  /* ---------- Spike hitbox reduction ---------- */
+  function getSpikeHitbox(ob) {
+    // Smaller rectangle inside the spike (like real GD)
+    const widthReduction = 8; // Reduce width by 8px
+    const heightReduction = 8; // Reduce height by 8px
+    const offsetX = widthReduction / 2;
+    const offsetY = heightReduction / 2;
+    
+    return {
+      x: ob.x + offsetX,
+      y: ob.y + offsetY,
+      w: ob.w - widthReduction,
+      h: ob.h - heightReduction
+    };
+  }
+
+
+  /* ---------- Yellow Orb functionality ---------- */
+  const yellowOrb = {
+    width: 30,
+    height: 30,
+    collected: false,
+    effect: function(player) {
+      if (GAME.mode === 'cube' && !player.onGround) {
+        player.vy = GAME.jumpV; // Jump boost
+        createOrbEffect(player.x + player.w/2, player.y + player.h/2, '#ffd200');
+        return true;
+      }
+      return false;
+    }
+  };
+
+
+  /* ---------- Orb effects ---------- */
+  function createOrbEffect(x, y, color) {
+    for (let i = 0; i < 12; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 50 + Math.random() * 150;
+      const size = 2 + Math.random() * 4;
+      
+      player.gravityOrbs.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: size,
+        gravity: GAME.gravity,
+        life: 0.8,
+        color: color
+      });
+    }
+  }
+
+
+  /* ---------- Main Level (Updated with new features) ---------- */
   const prebuiltMainLevel = {
     mode: 'cube',
-    length: 12000,
+    length: 15000,
     name: '180 BPM Odyssey',
     difficulty: 4,
     description: 'A rhythm-based challenge perfectly synced to 180 BPM music!',
@@ -274,14 +342,25 @@
       { x: 650, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
       { x: 800, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
       { x: 950, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
+      // Add a yellow orb before a jump section
+      { x: 1100, y: GAME.groundY - 150, w: 30, h: 30, type: 'yellowOrb', rotation: 0 },
       { x: 1133, y: GAME.groundY - 80, w: 80, h: 18, type: 'block', rotation: 0 },
       { x: 1250, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
+      // Add another yellow orb
+      { x: 1400, y: GAME.groundY - 200, w: 30, h: 30, type: 'yellowOrb', rotation: 0 },
       { x: 1466, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
       { x: 1600, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
       { x: 1799, y: GAME.groundY - 150, w: 120, h: 18, type: 'platform', rotation: 0 },
       { x: 2000, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
       { x: 2150, y: GAME.groundY - 28, w: 26, h: 28, type: 'spike', rotation: 0 },
-      { x: 2300, y: 150, w: 40, h: 40, type: 'normalSpeedPortal', rotation: 0 }
+      { x: 2300, y: 150, w: 40, h: 40, type: 'normalSpeedPortal', rotation: 0 },
+      // New features
+      { x: 2500, y: GAME.groundY - 40, w: 40, h: 40, type: 'gravityPortal', rotation: 0, gravityType: 'flip' },
+      { x: 2700, y: 100, w: 40, h: 40, type: 'speedPortal', rotation: 0, speedMode: 'fast' },
+      // Yellow orb after speed portal
+      { x: 2850, y: GAME.groundY - 100, w: 30, h: 30, type: 'yellowOrb', rotation: 0 },
+      { x: 2900, y: GAME.groundY - 60, w: 120, h: 30, type: 'textLabel', rotation: 0, text: 'Gravity Zone!', color: '#ff00ff' },
+      { x: 3100, y: GAME.groundY - 40, w: 40, h: 40, type: 'gravityPortal', rotation: 0, gravityType: 'normal' }
     ]
   };
 
@@ -311,6 +390,7 @@
   let running = false, inMenu = false, inGame = false, inEditor = false, inLevelBrowser = false;
   let animationHandle = null, lastTime = 0, levelPlayState = null;
   let input = { hold: false };
+  let editorSidebar = null;
 
 
   /* ---------- User System ---------- */
@@ -558,7 +638,7 @@ const userSystem = {
       }
       
       try {
-        const level = await this.getLevel(levelId);
+        const level = await levelDatabase.getLevel(levelId);
         if (!level) return null;
         
         const comments = level.comments || [];
@@ -1087,144 +1167,161 @@ usernameInput.style.cssText = `
   }
 
 
-  /* ---------- Level Editor ---------- */
+  /* ---------- Level Editor with Sidebar ---------- */
   function openEditor() {
     menuPanel.innerHTML = '';
-    menuPanel.style.display = 'flex';
-    menuPanel.style.flexDirection = 'column';
+    menuPanel.style.display = 'none';
     inEditor = true; inMenu = false; inGame = false; inLevelBrowser = false;
     
-    // Clear any existing dialogs
-    const existingDialogs = document.querySelectorAll('.gd-dialog');
+    // Clear any existing dialogs and sidebars
+    const existingDialogs = document.querySelectorAll('.gd-dialog, .editor-sidebar');
     existingDialogs.forEach(d => {
       if (d.parentNode) d.parentNode.removeChild(d);
     });
 
-
-    const controlsContainer = document.createElement('div');
-    controlsContainer.style.cssText = `
-      background: rgba(0,0,0,0.85);
+    // Create sidebar
+    editorSidebar = document.createElement('div');
+    editorSidebar.className = 'editor-sidebar';
+    editorSidebar.style.cssText = `
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 250px;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      z-index: 100;
       padding: 15px;
-      border-radius: 10px;
-      width: 100%;
-      margin-bottom: 10px;
-      border: 2px solid #4a8cff;
-    `;
-
-
-    const topRow = document.createElement('div');
-    topRow.style.cssText = `
+      overflow-y: auto;
+      border-right: 3px solid #4a8cff;
       display: flex;
+      flex-direction: column;
       gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 15px;
-      justify-content: center;
     `;
 
-
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
+    // Level Name (20 character limit)
+    const nameSection = document.createElement('div');
+    nameSection.innerHTML = `
+      <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">Level Name (max 20 chars):</div>
+      <input type="text" id="levelNameInput" maxlength="20" style="width: 100%; padding: 8px; border-radius: 6px; border: 2px solid #4a8cff; background: #222; color: #fff;">
+    `;
+    const nameInput = nameSection.querySelector('#levelNameInput');
     nameInput.value = editorState.level.name || 'Untitled Level';
-    nameInput.placeholder = 'Level Name';
-    nameInput.style.cssText = `
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 2px solid #4a8cff;
-      background: #222;
-      color: #fff;
-      flex: 1;
-      min-width: 200px;
-    `;
-    nameInput.addEventListener('change', () => {
-      editorState.level.name = nameInput.value;
+    nameInput.addEventListener('input', () => {
+      editorState.level.name = nameInput.value.substring(0, 20);
     });
-    topRow.appendChild(nameInput);
+    editorSidebar.appendChild(nameSection);
 
-
-    const diffSelect = document.createElement('select');
-    diffSelect.style.cssText = `
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 2px solid #4a8cff;
-      background: #333;
-      color: #fff;
-      min-width: 150px;
+    // Difficulty Selector
+    const diffSection = document.createElement('div');
+    diffSection.innerHTML = `
+      <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">Difficulty:</div>
+      <select id="diffSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 2px solid #4a8cff; background: #333; color: #fff;">
+        ${GD_DIFFICULTIES.map(diff => `<option value="${diff.id}">${diff.name} ${diff.face}</option>`).join('')}
+      </select>
     `;
-    GD_DIFFICULTIES.forEach((diff, i) => {
-      const option = document.createElement('option');
-      option.value = diff.id;
-      option.textContent = `${diff.name} ${diff.face}`;
-      diffSelect.appendChild(option);
-    });
+    const diffSelect = diffSection.querySelector('#diffSelect');
     diffSelect.value = editorState.level.difficulty || 1;
     diffSelect.addEventListener('change', () => {
       editorState.level.difficulty = parseInt(diffSelect.value);
     });
-    topRow.appendChild(diffSelect);
+    editorSidebar.appendChild(diffSection);
 
-
-    const typeSel = document.createElement('select');
-    typeSel.style.cssText = `
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 2px solid #4a8cff;
-      background: #333;
-      color: #fff;
-      min-width: 150px;
+    // Tool Selection
+    const toolSection = document.createElement('div');
+    toolSection.innerHTML = `
+      <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">Tool:</div>
+      <select id="toolSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 2px solid #4a8cff; background: #333; color: #fff;">
+        <option value="place">Place</option>
+        <option value="select">Select</option>
+        <option value="erase">Erase</option>
+        <option value="pan">Pan</option>
+      </select>
     `;
-    ['spike', 'block', 'platform', 'cubePortal', 'wavePortal', 'normalSpeedPortal', 'checkpointPortal'].forEach(t => { 
-      const option = document.createElement('option'); 
-      option.value = t; 
-      option.textContent = t; 
-      typeSel.appendChild(option); 
-    });
-    typeSel.value = editorState.placeType;
-    typeSel.addEventListener('change', () => { 
-      editorState.placeType = typeSel.value; 
-    });
-    topRow.appendChild(typeSel);
-
-
-    const toolSel = document.createElement('select');
-    toolSel.style.cssText = `
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 2px solid #4a8cff;
-      background: #333;
-      color: #fff;
-      min-width: 150px;
-    `;
-    ['place', 'select', 'erase', 'pan'].forEach(t => { 
-      const option = document.createElement('option'); 
-      option.value = t; 
-      option.textContent = t; 
-      toolSel.appendChild(option); 
-    });
-    toolSel.value = editorState.tool;
-    toolSel.addEventListener('change', () => { 
-      editorState.tool = toolSel.value; 
+    const toolSelect = toolSection.querySelector('#toolSelect');
+    toolSelect.value = editorState.tool;
+    toolSelect.addEventListener('change', () => {
+      editorState.tool = toolSelect.value;
       editorState.selectedObject = null;
+      updateObjectProperties();
     });
-    topRow.appendChild(toolSel);
+    editorSidebar.appendChild(toolSection);
 
-
-    controlsContainer.appendChild(topRow);
-
-
-    const bottomRow = document.createElement('div');
-    bottomRow.style.cssText = `
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: center;
+    // Object Type Selection
+    const typeSection = document.createElement('div');
+    typeSection.innerHTML = `
+      <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">Object Type:</div>
+      <select id="typeSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 2px solid #4a8cff; background: #333; color: #fff;">
+        <option value="spike">Spike</option>
+        <option value="block">Block</option>
+        <option value="platform">Platform</option>
+        <option value="cubePortal">Cube Portal</option>
+        <option value="wavePortal">Wave Portal</option>
+        <option value="gravityPortal">Gravity Portal</option>
+        <option value="speedPortal">Speed Portal</option>
+        <option value="textLabel">Text Label</option>
+        <option value="yellowOrb">Yellow Orb</option>
+      </select>
     `;
+    const typeSelect = typeSection.querySelector('#typeSelect');
+    typeSelect.value = editorState.placeType;
+    typeSelect.addEventListener('change', () => {
+      editorState.placeType = typeSelect.value;
+    });
+    editorSidebar.appendChild(typeSection);
 
+    // Grid Controls
+    const gridSection = document.createElement('div');
+    gridSection.innerHTML = `
+      <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">Grid:</div>
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+        <input type="checkbox" id="gridToggle" style="transform: scale(1.2);">
+        <label for="gridToggle" style="color: #fff;">Snap to Grid</label>
+      </div>
+      <div style="color: #fff; margin-bottom: 5px;">Grid Size: <span id="gridSizeValue">${editorState.gridSize}px</span></div>
+      <input type="range" id="gridSizeSlider" min="10" max="50" step="5" value="${editorState.gridSize}" style="width: 100%;">
+    `;
+    const gridToggle = gridSection.querySelector('#gridToggle');
+    gridToggle.checked = editorState.snapToGrid;
+    gridToggle.addEventListener('change', (e) => {
+      editorState.snapToGrid = e.target.checked;
+      drawEditorCanvas();
+    });
+    
+    const gridSizeSlider = gridSection.querySelector('#gridSizeSlider');
+    const gridSizeValue = gridSection.querySelector('#gridSizeValue');
+    gridSizeSlider.addEventListener('input', (e) => {
+      editorState.gridSize = parseInt(e.target.value);
+      gridSizeValue.textContent = `${editorState.gridSize}px`;
+      drawEditorCanvas();
+    });
+    editorSidebar.appendChild(gridSection);
 
-    function makeBtn(txt, cb, color = '#4a8cff') { 
-      const b = document.createElement('button'); 
-      b.textContent = txt; 
-      b.style.cssText = `
-        padding: 10px 16px;
+    // Object Properties Panel
+    const propsSection = document.createElement('div');
+    propsSection.id = 'objectProperties';
+    propsSection.style.cssText = `
+      background: rgba(255,255,255,0.1);
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 10px;
+      color: #fff;
+      display: none;
+    `;
+    propsSection.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; color: #ffd200;">Object Properties</div>
+      <div id="propsContent"></div>
+    `;
+    editorSidebar.appendChild(propsSection);
+
+    // Action Buttons
+    const actionsSection = document.createElement('div');
+    actionsSection.style.cssText = 'display: flex; flex-direction: column; gap: 10px; margin-top: 20px;';
+    
+    function createActionButton(text, onClick, color = '#4a8cff') {
+      const btn = document.createElement('button');
+      btn.textContent = text;
+      btn.style.cssText = `
+        padding: 10px;
         background: ${color};
         color: #fff;
         border: none;
@@ -1233,29 +1330,28 @@ usernameInput.style.cssText = `
         font-weight: bold;
         transition: all 0.2s;
       `;
-      b.addEventListener('mouseenter', () => {
-        b.style.transform = 'translateY(-2px)';
-        b.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
+      btn.addEventListener('mouseenter', () => {
+        btn.style.transform = 'translateY(-2px)';
+        btn.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
       });
-      b.addEventListener('mouseleave', () => {
-        b.style.transform = 'none';
-        b.style.boxShadow = 'none';
+      btn.addEventListener('mouseleave', () => {
+        btn.style.transform = 'none';
+        btn.style.boxShadow = 'none';
       });
-      b.addEventListener('click', cb); 
-      return b; 
+      btn.addEventListener('click', onClick);
+      return btn;
     }
 
-
-    bottomRow.appendChild(makeBtn('💾 Save Local', () => { 
-      try { 
-        safeStorage.setItem('gd_clone_custom_level', JSON.stringify(editorState.level)); 
-        alert('✓ Level saved locally!'); 
-      } catch (e) { 
-        alert('✓ Level saved in memory!'); 
-      } 
-    }, '#4a8cff'));
+    actionsSection.appendChild(createActionButton('💾 Save Local', () => {
+      try {
+        safeStorage.setItem('gd_clone_custom_level', JSON.stringify(editorState.level));
+        alert('✓ Level saved locally!');
+      } catch (e) {
+        alert('✓ Level saved in memory!');
+      }
+    }));
     
-    bottomRow.appendChild(makeBtn('📤 Publish Online', async () => {
+    actionsSection.appendChild(createActionButton('📤 Publish Online', async () => {
       if (!currentUser || currentUser.username === 'Guest') {
         alert('You must be logged in to publish levels online!');
         return;
@@ -1299,92 +1395,105 @@ usernameInput.style.cssText = `
       }
     }, '#ffd200'));
     
-    bottomRow.appendChild(makeBtn('📂 Load Local', () => {
+    actionsSection.appendChild(createActionButton('📂 Load Local', () => {
       try {
         const s = safeStorage.getItem('gd_clone_custom_level');
         if (!s) { alert('No saved level found locally'); return; }
         editorState.level = JSON.parse(s);
         nameInput.value = editorState.level.name || 'Untitled Level';
         diffSelect.value = editorState.level.difficulty || 1;
-        typeSel.value = editorState.placeType || 'spike';
+        typeSelect.value = editorState.placeType || 'spike';
         alert('✓ Loaded from local storage');
       } catch (e) { 
         alert('No saved level found'); 
       }
     }, '#1fd'));
     
-    bottomRow.appendChild(makeBtn('▶ Test Play', () => startLevel(clone(editorState.level)), '#4CAF50'));
+    actionsSection.appendChild(createActionButton('▶ Test Play', () => startLevel(clone(editorState.level)), '#4CAF50'));
     
-    bottomRow.appendChild(makeBtn('🗑️ Clear All', () => { 
-      if (confirm('Clear entire level? This cannot be undone.')) { 
-        editorState.level.obstacles = []; 
+    actionsSection.appendChild(createActionButton('🗑️ Clear All', () => {
+      if (confirm('Clear entire level? This cannot be undone.')) {
+        editorState.level.obstacles = [];
         editorState.selectedObject = null;
+        propsSection.style.display = 'none';
         alert('Level cleared');
-      } 
+      }
     }, '#f44336'));
     
-    bottomRow.appendChild(makeBtn('← Back to Menu', () => { 
-      menuPanel.innerHTML = ''; 
-      menuPanel.style.display = 'flex'; 
-      initMainMenu(); 
-      inEditor = false;
+    actionsSection.appendChild(createActionButton('← Back to Menu', () => {
+      cleanupEditor();
+      menuPanel.innerHTML = '';
+      menuPanel.style.display = 'flex';
+      initMainMenu();
     }, '#666'));
-
-
-    controlsContainer.appendChild(bottomRow);
-    menuPanel.appendChild(controlsContainer);
-
-
-    // Grid controls
-    const gridControls = document.createElement('div');
-    gridControls.style.cssText = `
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      justify-content: center;
-      margin-top: 10px;
-      color: #fff;
-      background: rgba(255,255,255,0.1);
-      padding: 10px;
-      border-radius: 8px;
-    `;
     
-    const gridLabel = document.createElement('span');
-    gridLabel.textContent = 'Grid:';
-    gridLabel.style.cssText = 'font-weight: bold;';
-    
-    const gridToggle = document.createElement('input');
-    gridToggle.type = 'checkbox';
-    gridToggle.checked = editorState.snapToGrid;
-    gridToggle.style.cssText = 'transform: scale(1.2); margin: 0 5px;';
-    gridToggle.addEventListener('change', (e) => {
-      editorState.snapToGrid = e.target.checked;
-      drawEditorCanvas();
-    });
-    
-    const gridSizeLabel = document.createElement('span');
-    gridSizeLabel.textContent = `Size: ${editorState.gridSize}px`;
-    gridSizeLabel.style.cssText = 'margin-left: 10px;';
-    
-    const gridSizeSlider = document.createElement('input');
-    gridSizeSlider.type = 'range';
-    gridSizeSlider.min = '10';
-    gridSizeSlider.max = '50';
-    gridSizeSlider.step = '5';
-    gridSizeSlider.value = editorState.gridSize;
-    gridSizeSlider.style.cssText = 'width: 100px; margin: 0 10px;';
-    gridSizeSlider.addEventListener('input', (e) => {
-      editorState.gridSize = parseInt(e.target.value);
-      gridSizeLabel.textContent = `Size: ${editorState.gridSize}px`;
-      drawEditorCanvas();
-    });
-    
-    gridControls.appendChild(gridLabel);
-    gridControls.appendChild(gridToggle);
-    gridControls.appendChild(gridSizeLabel);
-    gridControls.appendChild(gridSizeSlider);
-    controlsContainer.appendChild(gridControls);
+    editorSidebar.appendChild(actionsSection);
+    wrapper.appendChild(editorSidebar);
 
+    // Object properties update function
+    function updateObjectProperties() {
+      const propsContent = document.getElementById('propsContent');
+      propsSection.style.display = 'none';
+      
+      if (editorState.selectedObject) {
+        propsSection.style.display = 'block';
+        propsContent.innerHTML = '';
+        
+        if (editorState.selectedObject.type === 'gravityPortal') {
+          propsContent.innerHTML = `
+            <div style="margin-bottom: 5px;">Gravity Type:</div>
+            <select id="gravityTypeSelect" style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #4a8cff;">
+              <option value="flip">Flip Gravity</option>
+              <option value="normal">Normal Gravity</option>
+              <option value="reverse">Reverse Gravity</option>
+            </select>
+          `;
+          const select = propsContent.querySelector('#gravityTypeSelect');
+          select.value = editorState.selectedObject.gravityType || 'flip';
+          select.addEventListener('change', () => {
+            editorState.selectedObject.gravityType = select.value;
+            drawEditorCanvas();
+          });
+        } else if (editorState.selectedObject.type === 'speedPortal') {
+          propsContent.innerHTML = `
+            <div style="margin-bottom: 5px;">Speed Mode:</div>
+            <select id="speedModeSelect" style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #4a8cff;">
+              ${SPEED_MODES.map(mode => `<option value="${mode.name}">${mode.name} (${mode.multiplier}x)</option>`).join('')}
+            </select>
+          `;
+          const select = propsContent.querySelector('#speedModeSelect');
+          select.value = editorState.selectedObject.speedMode || 'normal';
+          select.addEventListener('change', () => {
+            editorState.selectedObject.speedMode = select.value;
+            drawEditorCanvas();
+          });
+        } else if (editorState.selectedObject.type === 'textLabel') {
+          propsContent.innerHTML = `
+            <div style="margin-bottom: 5px;">Text:</div>
+            <input type="text" id="textLabelInput" value="${editorState.selectedObject.text || ''}" 
+              style="width: 100%; padding: 5px; background: #333; color: #fff; border: 1px solid #4a8cff; margin-bottom: 10px;">
+            <div style="margin-bottom: 5px;">Color:</div>
+            <input type="color" id="textColorInput" value="${editorState.selectedObject.color || '#ffffff'}" 
+              style="width: 100%; padding: 5px; background: #333; border: 1px solid #4a8cff;">
+          `;
+          
+          const textInput = propsContent.querySelector('#textLabelInput');
+          textInput.addEventListener('input', () => {
+            editorState.selectedObject.text = textInput.value.substring(0, 30);
+            editorState.selectedObject.w = Math.min(200, editorState.selectedObject.text.length * 12);
+            drawEditorCanvas();
+          });
+          
+          const colorInput = propsContent.querySelector('#textColorInput');
+          colorInput.addEventListener('change', () => {
+            editorState.selectedObject.color = colorInput.value;
+            drawEditorCanvas();
+          });
+        } else {
+          propsContent.innerHTML = '<div style="color: #aaa;">No editable properties for this object type.</div>';
+        }
+      }
+    }
 
     // Add editor event handlers
     let editorPointerDownHandler, editorPointerMoveHandler, editorPointerUpHandler;
@@ -1461,22 +1570,46 @@ usernameInput.style.cssText = `
             type: 'wavePortal',
             rotation: 0
           };
-        } else if (editorState.placeType === 'normalSpeedPortal') {
+        } else if (editorState.placeType === 'gravityPortal') {
           ob = { 
             x: worldX, 
             y: worldY,
             w: 40, 
             h: 40, 
-            type: 'normalSpeedPortal',
-            rotation: 0
+            type: 'gravityPortal',
+            rotation: 0,
+            gravityType: 'flip'
           };
-        } else if (editorState.placeType === 'checkpointPortal') {
+        } else if (editorState.placeType === 'speedPortal') {
           ob = { 
             x: worldX, 
             y: worldY,
             w: 40, 
             h: 40, 
-            type: 'checkpointPortal',
+            type: 'speedPortal',
+            rotation: 0,
+            speedMode: 'normal'
+          };
+        } else if (editorState.placeType === 'textLabel') {
+          const text = prompt('Enter text for label (max 30 chars):', 'Text');
+          if (text === null) return;
+          ob = { 
+            x: worldX, 
+            y: worldY,
+            w: Math.min(200, text.length * 12),
+            h: 30,
+            type: 'textLabel',
+            rotation: 0,
+            text: text.substring(0, 30),
+            color: '#ffffff'
+          };
+        } else if (editorState.placeType === 'yellowOrb') {
+          ob = { 
+            x: worldX, 
+            y: worldY,
+            w: 30, 
+            h: 30, 
+            type: 'yellowOrb',
             rotation: 0
           };
         }
@@ -1494,6 +1627,7 @@ usernameInput.style.cssText = `
           const o = editorState.level.obstacles[i];
           if (wx >= o.x && wx <= o.x + o.w && wy >= o.y && wy <= o.y + o.h) {
             editorState.selectedObject = o;
+            updateObjectProperties();
             break;
           }
         }
@@ -1506,6 +1640,7 @@ usernameInput.style.cssText = `
             editorState.level.obstacles.splice(i, 1);
             if (editorState.selectedObject === o) {
               editorState.selectedObject = null;
+              updateObjectProperties();
             }
             break;
           }
@@ -1560,6 +1695,7 @@ usernameInput.style.cssText = `
             if (index !== -1) {
               editorState.level.obstacles.splice(index, 1);
               editorState.selectedObject = null;
+              updateObjectProperties();
               drawEditorCanvas();
             }
           }
@@ -1567,6 +1703,7 @@ usernameInput.style.cssText = `
         case 'Escape':
           if (editorState.selectedObject) {
             editorState.selectedObject = null;
+            updateObjectProperties();
             drawEditorCanvas();
           }
           break;
@@ -1634,15 +1771,30 @@ usernameInput.style.cssText = `
           ctx.strokeRect(sx - 3, ob.y - 3, ob.w + 6, ob.h + 6);
         }
       });
+      
+      // Draw viewport indicator
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.fillRect(GAME.width - 100, 10, 90, 40);
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.fillText(`View: ${Math.round(editorState.viewOffset)}`, GAME.width - 95, 25);
+      ctx.fillText(`Objs: ${editorState.level.obstacles.length}`, GAME.width - 95, 40);
     }
     
-    // Clean up event handlers
-    menuPanel._editorCleanup = function() {
+    // Clean up function
+    function cleanupEditor() {
       canvas.removeEventListener('pointerdown', editorPointerDownHandler);
       window.removeEventListener('pointermove', editorPointerMoveHandler);
       window.removeEventListener('pointerup', editorPointerUpHandler);
       window.removeEventListener('keydown', editorKeyDownHandler);
-    };
+      if (editorSidebar && editorSidebar.parentNode) {
+        editorSidebar.parentNode.removeChild(editorSidebar);
+      }
+      inEditor = false;
+    }
+    
+    // Store cleanup function
+    editorSidebar._cleanup = cleanupEditor;
     
     drawEditorCanvas();
   }
@@ -1925,6 +2077,24 @@ usernameInput.style.cssText = `
               `;
             }
             
+            // Elder Moderators and Jackson can send to Jackson
+            if (currentUser && (currentUser.isElder || currentUser.isOwner)) {
+              buttonRow += `
+                <button class="send-to-jackson-btn" style="padding: 8px 12px; background: #ffd700; color: #000; border: none; border-radius: 4px; cursor: pointer; flex: 1;">
+                  👑 Send to Jackson
+                </button>
+              `;
+            }
+            
+            // Jackson also gets rate button
+            if (currentUser && currentUser.isOwner) {
+              buttonRow += `
+                <button class="rate-level-btn" style="padding: 8px 12px; background: #ff3366; color: #fff; border: none; border-radius: 4px; cursor: pointer; flex: 1;">
+                  🛠️ Rate Level
+                </button>
+              `;
+            }
+            
             // Add comments button for everyone
             buttonRow += `
               <button class="comments-btn" data-level-id="${level.id}" style="padding: 8px 12px; background: #9C27B0; color: #fff; border: none; border-radius: 4px; cursor: pointer; flex: 1;">
@@ -1961,6 +2131,8 @@ usernameInput.style.cssText = `
             const likeBtn = levelCard.querySelector('.like-btn');
             const commentsBtn = levelCard.querySelector('.comments-btn');
             const sendToElderBtn = levelCard.querySelector('.send-to-elder-btn');
+            const sendToJacksonBtn = levelCard.querySelector('.send-to-jackson-btn');
+            const rateLevelBtn = levelCard.querySelector('.rate-level-btn');
             
             playBtn.addEventListener('click', async (e) => {
               e.stopPropagation();
@@ -2017,6 +2189,52 @@ usernameInput.style.cssText = `
                     alert('Level sent to Elder Moderators for review.');
                   } else {
                     alert('Failed to send level. Please try again.');
+                  }
+                }
+              });
+            }
+            
+            if (sendToJacksonBtn) {
+              sendToJacksonBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!currentUser || currentUser.username === 'Guest') {
+                  alert('Please log in to use moderation tools!');
+                  return;
+                }
+                
+                if (confirm(`Send "${level.name}" to Jackson for rating?`)) {
+                  const success = await levelDatabase.updateLevel(level.id, {
+                    moderationStatus: "sentToJackson",
+                    sentToJacksonBy: currentUser.username
+                  });
+                  if (success) {
+                    sendToJacksonBtn.textContent = '✓ Sent';
+                    sendToJacksonBtn.disabled = true;
+                    sendToJacksonBtn.style.background = '#666';
+                    alert('Level sent to Jackson for rating.');
+                  } else {
+                    alert('Failed to send level. Please try again.');
+                  }
+                }
+              });
+            }
+            
+            if (rateLevelBtn) {
+              rateLevelBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!currentUser || currentUser.username === 'Guest') {
+                  alert('Please log in to rate levels!');
+                  return;
+                }
+                
+                const rating = prompt('Rate this level from 1-10:', '7');
+                if (rating !== null) {
+                  const newRating = await levelDatabase.addRating(level.id, rating);
+                  if (newRating !== null) {
+                    rateLevelBtn.textContent = `Rated: ${newRating}`;
+                    rateLevelBtn.disabled = true;
+                    rateLevelBtn.style.background = '#666';
+                    alert(`Rating submitted! New average: ${newRating}`);
                   }
                 }
               });
@@ -3049,24 +3267,41 @@ usernameInput.style.cssText = `
 
 
       if (mode === 'cube') {
-        player.vy += GAME.gravity * dt;
+        // Apply gravity based on gravity mode
+        if (GAME.gravityMode === 'reverse') {
+          player.vy -= GAME.gravity * dt;
+        } else {
+          player.vy += GAME.gravity * dt;
+        }
         player.y += player.vy * dt;
         
         player.onGround = false;
-        if (player.y + player.h >= GAME.groundY) {
-          player.y = GAME.groundY - player.h;
-          player.vy = 0;
-          player.onGround = true;
-          player.cubeRotationSpeed = 0;
-          player.rotation = 0;
+        
+        // Ground collision based on gravity mode
+        if (GAME.gravityMode === 'reverse') {
+          if (player.y <= 0) {
+            player.y = 0;
+            player.vy = 0;
+            player.onGround = true;
+            player.cubeRotationSpeed = 0;
+            player.rotation = 180;
+          }
+        } else {
+          if (player.y + player.h >= GAME.groundY) {
+            player.y = GAME.groundY - player.h;
+            player.vy = 0;
+            player.onGround = true;
+            player.cubeRotationSpeed = 0;
+            player.rotation = 0;
+          }
         }
         
         // Cube rotation in air
         if (!player.onGround) {
-          if (player.vy < 0) {
-            player.cubeRotationSpeed = -400;
+          if (GAME.gravityMode === 'reverse') {
+            player.cubeRotationSpeed = (player.vy < 0 ? -400 : 400);
           } else {
-            player.cubeRotationSpeed = 400;
+            player.cubeRotationSpeed = (player.vy < 0 ? -400 : 400);
           }
           player.rotation += player.cubeRotationSpeed * dt;
         }
@@ -3074,6 +3309,7 @@ usernameInput.style.cssText = `
         const actualHitboxW = waveMode.hitboxWidth;
         const actualHitboxH = waveMode.hitboxHeight;
         
+        // Wave mode unaffected by gravity portals
         player.vy = input.hold ? -320 : 380;
         player.y += player.vy * dt;
         if (player.y < 12) player.y = 12;
@@ -3113,56 +3349,133 @@ usernameInput.style.cssText = `
       }
       
       let hit = false;
+      let collectedOrb = false;
       
       for (const ob of levelPlayState.level.obstacles) {
         const screenX = Math.round(ob.x - levelPlayState.offsetX);
-        const obBox = { x: screenX, y: ob.y, w: ob.w, h: ob.h };
         
-        if (rectsOverlap(pbox, obBox)) {
-          if (ob.type === 'spike') {
+        if (ob.type === 'spike') {
+          // Use smaller spike hitbox
+          const spikeHitbox = getSpikeHitbox({
+            x: screenX,
+            y: ob.y,
+            w: ob.w,
+            h: ob.h
+          });
+          
+          if (rectsOverlap(pbox, spikeHitbox)) {
             hit = true;
             break;
-          } else if (ob.type === 'block' || ob.type === 'platform') {
-            if (mode === 'cube') {
-              const playerBottom = player.prevY + player.h;
-              const playerTop = player.prevY;
-              const blockTop = ob.y;
-              const blockBottom = ob.y + ob.h;
-              const tolerance = 10;
-              
-              if (playerBottom <= blockTop + tolerance && player.vy > 0) {
-                player.y = ob.y - player.h;
-                player.vy = 0;
-                player.onGround = true;
-                player.cubeRotationSpeed = 0;
-                player.rotation = 0;
-              } 
-              else if (playerTop >= blockBottom - tolerance && player.vy < 0) {
-                player.y = ob.y + ob.h;
-                player.vy = 0;
-              }
-              else {
+          }
+        } else {
+          const obBox = { x: screenX, y: ob.y, w: ob.w, h: ob.h };
+          
+          if (rectsOverlap(pbox, obBox)) {
+            if (ob.type === 'block' || ob.type === 'platform') {
+              if (mode === 'cube') {
+                const playerBottom = player.prevY + player.h;
+                const playerTop = player.prevY;
+                const blockTop = ob.y;
+                const blockBottom = ob.y + ob.h;
+                const tolerance = 10;
+                
+                if (playerBottom <= blockTop + tolerance && player.vy > 0) {
+                  player.y = ob.y - player.h;
+                  player.vy = 0;
+                  player.onGround = true;
+                  player.cubeRotationSpeed = 0;
+                  player.rotation = 0;
+                } 
+                else if (playerTop >= blockBottom - tolerance && player.vy < 0) {
+                  player.y = ob.y + ob.h;
+                  player.vy = 0;
+                }
+                else {
+                  hit = true;
+                  break;
+                }
+              } else {
                 hit = true;
                 break;
               }
-            } else {
-              hit = true;
-              break;
+            } else if (ob.type === 'cubePortal') {
+              GAME.mode = 'cube';
+              updatePlayerAppearance();
+              player.trail = [];
+              player.vy = 0;
+            } else if (ob.type === 'wavePortal') {
+              GAME.mode = 'wave';
+              updatePlayerAppearance();
+              player.vy = 0;
+            } else if (ob.type === 'normalSpeedPortal') {
+              GAME.speedMultiplier = 1.0;
+            } else if (ob.type === 'gravityPortal') {
+              if (GAME.flipCooldown <= 0) {
+                GAME.flipCooldown = 0.5;
+                
+                if (ob.gravityType === 'flip') {
+                  GAME.gravity = -GAME.gravity;
+                  GAME.jumpV = -GAME.jumpV;
+                  player.gravityFlipped = !player.gravityFlipped;
+                  
+                  if (GAME.gravity > 0) {
+                    GAME.gravityMode = 'normal';
+                  } else {
+                    GAME.gravityMode = 'reverse';
+                  }
+                  
+                  // Create gravity orbs effect
+                  createGravityEffect(ob.x, ob.y + ob.h/2);
+                } else if (ob.gravityType === 'normal') {
+                  GAME.gravity = 1400;
+                  GAME.jumpV = -480;
+                  player.gravityFlipped = false;
+                  GAME.gravityMode = 'normal';
+                } else if (ob.gravityType === 'reverse') {
+                  GAME.gravity = -1400;
+                  GAME.jumpV = 480;
+                  player.gravityFlipped = true;
+                  GAME.gravityMode = 'reverse';
+                }
+              }
+            } else if (ob.type === 'speedPortal') {
+              const speedMode = SPEED_MODES.find(m => m.name === ob.speedMode) || SPEED_MODES[1];
+              GAME.speedMultiplier = speedMode.multiplier;
+              
+              // Create speed effect
+              createSpeedEffect(ob.x, ob.y + ob.h/2, speedMode.color);
+            } else if (ob.type === 'yellowOrb') {
+              // Collect yellow orb
+              if (yellowOrb.effect(player)) {
+                collectedOrb = true;
+                // Remove the orb from the level
+                const index = levelPlayState.level.obstacles.indexOf(ob);
+                if (index > -1) {
+                  levelPlayState.level.obstacles.splice(index, 1);
+                }
+              }
+            } else if (ob.type === 'textLabel') {
+              // Just a visual element, no collision
             }
-          } else if (ob.type === 'cubePortal') {
-            GAME.mode = 'cube';
-            updatePlayerAppearance();
-            player.trail = [];
-            player.vy = 0;
-          } else if (ob.type === 'wavePortal') {
-            GAME.mode = 'wave';
-            updatePlayerAppearance();
-            player.vy = 0;
-          } else if (ob.type === 'normalSpeedPortal') {
-            GAME.speedMultiplier = 1.0;
           }
         }
       }
+      
+      // Update cooldown
+      if (GAME.flipCooldown > 0) {
+        GAME.flipCooldown -= dt;
+      }
+      
+      // Update gravity orbs
+      player.gravityOrbs.forEach((orb, index) => {
+        orb.x += orb.vx * dt;
+        orb.y += orb.vy * dt;
+        orb.vy += (orb.gravity || GAME.gravity) * dt;
+        orb.life -= dt;
+      });
+      
+      // Remove dead orbs
+      player.gravityOrbs = player.gravityOrbs.filter(orb => orb.life > 0);
       
       if (hit) { 
         running = false; 
@@ -3181,7 +3494,7 @@ usernameInput.style.cssText = `
 
 
     drawFrame();
-    hud.innerText = `Score: ${Math.floor(GAME.score)}  Best: ${Math.floor(GAME.best)}  Speed: ${GAME.speedMultiplier.toFixed(1)}x  Mode: ${GAME.mode}`;
+    hud.innerText = `Score: ${Math.floor(GAME.score)}  Best: ${Math.floor(GAME.best)}  Speed: ${GAME.speedMultiplier.toFixed(1)}x  Mode: ${GAME.mode}  Gravity: ${GAME.gravityMode.toUpperCase()}`;
   }
 
 
@@ -3190,6 +3503,46 @@ usernameInput.style.cssText = `
       player.color = '#4a8cff';
     } else {
       player.color = '#ffd200';
+    }
+  }
+
+
+  /* ---------- Visual Effects ---------- */
+  function createGravityEffect(x, y) {
+    for (let i = 0; i < 20; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 100 + Math.random() * 200;
+      const size = 3 + Math.random() * 5;
+      
+      player.gravityOrbs.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: size,
+        gravity: GAME.gravity,
+        life: 1.0,
+        color: '#ff00ff'
+      });
+    }
+  }
+
+  function createSpeedEffect(x, y, color) {
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 200 + Math.random() * 300;
+      const size = 2 + Math.random() * 4;
+      
+      player.gravityOrbs.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: size,
+        gravity: GAME.gravity,
+        life: 1.0,
+        color: color
+      });
     }
   }
 
@@ -3221,6 +3574,7 @@ usernameInput.style.cssText = `
 
 
   function drawObstacle(ob, sx) {
+    const time = Date.now() / 1000;
     ctx.save();
     
     if (ob.type.includes('Portal')) {
@@ -3239,9 +3593,50 @@ usernameInput.style.cssText = `
         portalColor = '#00ff00';
         portalText = 'S';
         textColor = '#000';
-      } else if (ob.type === 'checkpointPortal') {
-        portalColor = '#ffff00';
-        portalText = '✓';
+      } else if (ob.type === 'gravityPortal') {
+        portalColor = '#ff00ff';
+        portalText = 'G';
+        textColor = '#fff';
+        
+        // Add arrow indicator
+        const arrowSize = 8;
+        ctx.fillStyle = '#fff';
+        if (ob.gravityType === 'flip') {
+          // Double arrow
+          ctx.beginPath();
+          ctx.moveTo(-arrowSize, -arrowSize);
+          ctx.lineTo(arrowSize, 0);
+          ctx.lineTo(-arrowSize, arrowSize);
+          ctx.closePath();
+          ctx.fill();
+          
+          ctx.beginPath();
+          ctx.moveTo(arrowSize, -arrowSize);
+          ctx.lineTo(-arrowSize, 0);
+          ctx.lineTo(arrowSize, arrowSize);
+          ctx.closePath();
+          ctx.fill();
+        } else if (ob.gravityType === 'normal') {
+          // Down arrow (normal gravity)
+          ctx.beginPath();
+          ctx.moveTo(-arrowSize, -arrowSize);
+          ctx.lineTo(0, 0);
+          ctx.lineTo(arrowSize, -arrowSize);
+          ctx.closePath();
+          ctx.fill();
+        } else if (ob.gravityType === 'reverse') {
+          // Up arrow (reverse gravity)
+          ctx.beginPath();
+          ctx.moveTo(-arrowSize, arrowSize);
+          ctx.lineTo(0, 0);
+          ctx.lineTo(arrowSize, arrowSize);
+          ctx.closePath();
+          ctx.fill();
+        }
+      } else if (ob.type === 'speedPortal') {
+        const speedMode = SPEED_MODES.find(m => m.name === ob.speedMode) || SPEED_MODES[1];
+        portalColor = speedMode.color;
+        portalText = speedMode.name.charAt(0).toUpperCase();
         textColor = '#000';
       }
       
@@ -3261,6 +3656,53 @@ usernameInput.style.cssText = `
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(portalText, 0, 0);
+      
+    } else if (ob.type === 'textLabel') {
+      ctx.fillStyle = ob.color || '#ffffff';
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      
+      // Draw background for text
+      const textWidth = ctx.measureText(ob.text || 'Text').width;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(sx - 2, ob.y - 2, textWidth + 4, 24);
+      
+      // Draw text
+      ctx.fillStyle = ob.color || '#ffffff';
+      ctx.fillText(ob.text || 'Text', sx, ob.y);
+      
+    } else if (ob.type === 'yellowOrb') {
+      ctx.save();
+      ctx.translate(sx + ob.w/2, ob.y + ob.h/2);
+      
+      // Pulsating effect
+      const pulse = Math.sin(time * 5) * 0.1 + 0.9;
+      
+      // Outer glow
+      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, ob.w/2);
+      gradient.addColorStop(0, 'rgba(255, 215, 0, 0.8)');
+      gradient.addColorStop(0.7, 'rgba(255, 200, 0, 0.4)');
+      gradient.addColorStop(1, 'rgba(255, 180, 0, 0)');
+      
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(0, 0, ob.w/2 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Inner core
+      ctx.fillStyle = '#ffd200';
+      ctx.beginPath();
+      ctx.arc(0, 0, ob.w/3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Shine effect
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.beginPath();
+      ctx.arc(-ob.w/6, -ob.w/6, ob.w/8, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
       
     } else {
       if (ob.type === 'spike') {
@@ -3382,6 +3824,19 @@ usernameInput.style.cssText = `
           ctx.restore();
         }
       }
+      
+      // Draw gravity orbs
+      if (player.gravityOrbs.length > 0) {
+        player.gravityOrbs.forEach((orb) => {
+          ctx.save();
+          ctx.globalAlpha = orb.life;
+          ctx.fillStyle = orb.color;
+          ctx.beginPath();
+          ctx.arc(orb.x - levelPlayState.offsetX, orb.y, orb.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      }
     }
 
 
@@ -3475,6 +3930,11 @@ usernameInput.style.cssText = `
       return;
     }
     
+    // Clean up editor if it's open
+    if (inEditor && editorSidebar && editorSidebar._cleanup) {
+      editorSidebar._cleanup();
+    }
+    
     const clonedLevel = clone(level);
     
     // Set defaults for missing properties
@@ -3527,6 +3987,10 @@ usernameInput.style.cssText = `
     GAME.speed = GAME.baseSpeed; 
     GAME.speedMultiplier = 1;
     GAME.mode = clonedLevel.mode || 'cube';
+    GAME.gravityMode = 'normal';
+    GAME.gravity = 1400;
+    GAME.jumpV = -480;
+    GAME.flipCooldown = 0;
     
     // Reset player - Start at safe position
     player.x = 100;
@@ -3538,6 +4002,8 @@ usernameInput.style.cssText = `
     player.rotation = 0;
     player.tilt = 0;
     player.cubeRotationSpeed = 0;
+    player.gravityFlipped = false;
+    player.gravityOrbs = [];
     
     updatePlayerAppearance();
     
@@ -3556,6 +4022,10 @@ usernameInput.style.cssText = `
     GAME.speed = GAME.baseSpeed; 
     GAME.speedMultiplier = 1;
     GAME.mode = levelPlayState.level.mode || 'cube';
+    GAME.gravityMode = 'normal';
+    GAME.gravity = 1400;
+    GAME.jumpV = -480;
+    GAME.flipCooldown = 0;
     
     // Reset to safe starting position
     player.x = 100;
@@ -3567,6 +4037,8 @@ usernameInput.style.cssText = `
     player.rotation = 0;
     player.tilt = 0;
     player.cubeRotationSpeed = 0;
+    player.gravityFlipped = false;
+    player.gravityOrbs = [];
     
     updatePlayerAppearance();
     
@@ -3625,8 +4097,8 @@ usernameInput.style.cssText = `
         enterMenuFromGame(); 
       }
       else if (inEditor) { 
-        if (menuPanel._editorCleanup) {
-          menuPanel._editorCleanup();
+        if (editorSidebar && editorSidebar._cleanup) {
+          editorSidebar._cleanup();
         }
         menuPanel.innerHTML = ''; 
         menuPanel.style.display = 'flex'; 
@@ -3694,6 +4166,10 @@ usernameInput.style.cssText = `
       menuPanel._editorCleanup = null;
     }
     
+    if (editorSidebar && editorSidebar._cleanup) {
+      editorSidebar._cleanup();
+    }
+    
     window.removeEventListener('keydown', onGlobalKeyDown);
     window.removeEventListener('keyup', onGlobalKeyUp);
     canvas.removeEventListener('pointerdown', onCanvasPointerDown);
@@ -3712,4 +4188,3 @@ usernameInput.style.cssText = `
 
 
 })();
-
